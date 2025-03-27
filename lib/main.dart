@@ -11,67 +11,98 @@ import 'core/utils/constants.dart';
 import 'core/utils/shared_preferences_manager.dart';
 import 'core/utils/utils.dart';
 
-SharedPreferencesManager _sharedPreferencesManager = locator();
-late ThemeManager _themeManager;
-ThemeType themeType = ThemeType.light;
+/// Application configuration provider
+class AppConfig {
+  final ThemeManager _themeManager;
+  final SharedPreferencesManager _prefsManager;
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: ".env");
-  await setupInjection();
-  _setupThemeManager();
-  runApp(const MyApp());
-}
+  AppConfig({
+    required ThemeManager themeManager,
+    required SharedPreferencesManager prefsManager,
+  }) : _themeManager = themeManager,
+       _prefsManager = prefsManager;
 
-void _setupThemeManager() {
-  String? locale = _sharedPreferencesManager.getCurrentLanguage();
-  String font = _getFont(locale ?? Locales.englishLocale.locale);
-
-  HashMap<ThemeType, CustomColor> hashMap = HashMap();
-  hashMap.putIfAbsent(ThemeType.light, () => LightColor());
-  hashMap.putIfAbsent(ThemeType.dark, () => DarkColor());
-  _themeManager = ThemeManager(hashMap, font);
-}
-
-ThemeType _getCurrentTheme() {
-  String currentThemeName = _sharedPreferencesManager.getCurrentTheme() ?? ThemeType.light.name;
-  ThemeType themeType;
-  try {
-    themeType = Utils.getThemeByName(currentThemeName);
+  ThemeType getCurrentTheme() {
+    final currentThemeName =
+        _prefsManager.getCurrentTheme() ?? ThemeType.light.name;
+    try {
+      return Utils.getThemeByName(currentThemeName);
+    } catch (_) {
+      return ThemeType.light;
+    }
   }
-  catch (e) {
-    themeType = ThemeType.light;
-  }
-  return themeType;
+
+  ThemeData get currentTheme => _themeManager.getTheme(getCurrentTheme());
 }
 
-String _getFont(String locale) {
-  String font = FontFamily.openSans.font;
-  if (locale == Locales.englishLocale.locale) {
-    font = FontFamily.openSans.font;
-  }
-  return font;
-}
+/// Root widget of the application
+class QuotesApp extends StatelessWidget {
+  final AppConfig appConfig;
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const QuotesApp({required this.appConfig, super.key});
 
   @override
   Widget build(BuildContext context) {
-    final currentTheme = _themeManager.getTheme(_getCurrentTheme());
-    
     return MaterialApp(
       title: 'Quotes',
       debugShowCheckedModeBanner: false,
+      theme: appConfig.currentTheme,
       initialRoute: AppRoutes.quoteListRoute,
-      theme: currentTheme,
-      routes: {
-        AppRoutes.quoteListRoute: (context) => BlocProvider(
-          create: (context) => locator<QuoteListBloc>(),
-          child: const QuotesScreen(),
-        ),
-      },
+      routes: _buildAppRoutes(),
       locale: Locale(Locales.englishLocale.locale),
     );
   }
+
+  Map<String, WidgetBuilder> _buildAppRoutes() {
+    return {
+      AppRoutes.quoteListRoute:
+          (_) => BlocProvider(
+            create: (_) => locator<QuoteListBloc>(),
+            child: const QuotesScreen(),
+          ),
+    };
+  }
+}
+
+Future<void> main() async {
+  // Do basic Flutter initialization
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Load environment variables and dependencies
+  await dotenv.load(fileName: ".env");
+  await setupInjection();
+
+  // Get dependencies from locator (dependency injection container)
+  final prefsManager = locator<SharedPreferencesManager>();
+
+  // Build theme manager
+  final themeManager = _buildThemeManager(prefsManager);
+
+  // Create app configuration
+  final appConfig = AppConfig(
+    themeManager: themeManager,
+    prefsManager: prefsManager,
+  );
+
+  // Launch the app
+  runApp(QuotesApp(appConfig: appConfig));
+}
+
+/// Helper functions for initialization
+ThemeManager _buildThemeManager(SharedPreferencesManager prefsManager) {
+  final locale = prefsManager.getCurrentLanguage();
+  final font = _getFontForLocale(locale ?? Locales.englishLocale.locale);
+  final themeColors = _buildThemeColorMap();
+
+  return ThemeManager(themeColors, font);
+}
+
+HashMap<ThemeType, CustomColor> _buildThemeColorMap() {
+  return HashMap<ThemeType, CustomColor>()
+    ..putIfAbsent(ThemeType.light, () => LightColor())
+    ..putIfAbsent(ThemeType.dark, () => DarkColor());
+}
+
+String _getFontForLocale(String locale) {
+  return FontFamily.openSans.font;
 }
